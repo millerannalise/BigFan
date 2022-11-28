@@ -1,0 +1,16 @@
+Created date time by Windographer version
+
+Latitude = latitude
+Longitude = longitude
+Elevation = elevation
+Calm threshold = 0 m/s
+
+Included flags: <Unflagged data>
+Excluded flags: flag list
+
+Time stamps indicate the beginning of the time step.
+
+Date/Time,Direction,Temperature,Pressure,Speed1,Speed1SD,Speed2,
+2020-01-01 00:00,0,25,1013.25,7,10,6
+2020-01-01 00:10,0,25,1013.25,7,10,6
+2020-01-01 00:20,0,25,1013.25,7,10,6

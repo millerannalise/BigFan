@@ -1,0 +1,18 @@
+Reanalysis data requested by Windographer Data Downloader version
+
+MERRA-2 data downloaded from Windnavigator on date time EDT
+
+Data set: MERRA-2
+Source: NASA Global Modeling and Assimilation Office
+Provider: UL Services Group LLC
+Latitude: latitude
+Longitude: longitude
+Obtained from: grid cell i = ###, j = ###
+
+Each time stamp indicates the beginning of a time step.
+UL Services Group LLC provides this data as-is from source and does not guarantee its accuracy.
+
+Date/time [UTC]	Speed_50m [m/s]	Direction_50m [degrees]	Temperature_10m [degrees C]	Pressure_0m [kPa]
+1979-01-01T00:00:00	7	0	25	1013.25
+1979-01-01T01:00:00	7	0	25	1013.25
+1979-01-01T02:00:00	7	0	25	1013.25

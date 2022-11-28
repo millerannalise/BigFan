@@ -1,0 +1,18 @@
+Reanalysis data requested by Windographer Data Downloader version
+
+ERA data downloaded from Windnavigator on date time EDT
+
+Data set: ERA5
+Source: European Centre for Medium-Range Weather Forecasts
+Provider: UL Services Group LLC
+Latitude: latitude
+Longitude: longitude
+Obtained from: grid cell i = ###, j = ###
+
+Each time stamp indicates the beginning of a time step.
+UL Services Group LLC provides this data as-is from source and does not guarantee its accuracy.
+
+Date/time [UTC]	Speed_100m [m/s]	Direction_100m [degrees]	Temperature_2m [degrees C]	Pressure_0m [kPa]
+1979-01-01T00:00:00	7	0	25	1013.25
+1979-01-01T01:00:00	7	0	25	1013.25
+1979-01-01T02:00:00	7	0	25	1013.25
