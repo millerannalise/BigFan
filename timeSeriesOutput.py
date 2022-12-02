@@ -224,7 +224,9 @@ def create_with_12x24(df_target, col_target, df_source, col_source):
 def append_values(df_target, col_target, df_source, col_source):
     """
     create a column in a data frame by copying time step from a second time series source. Note: the df_source
-    data frame must contain every time stamp in df_target, any additional time stamps in df_source will be ignored
+    data frame must contain data over the same time range of df_target, any additional time stamps in
+    df_source will be ignored. If the df_source does not contain a time stamp within df_target, the function
+    will fill all data points with the time stamp at the top of the hour.
 
     Parameters
     ----------
@@ -316,7 +318,7 @@ def calc_TI(df, parameters):
     return df
 
 
-def shear_data(df, parameters, limit_type='percentile'):
+def shear_data(df, parameters, min_shear_percentile=0.01, max_shear_percentile=0.99):
     """
     extrapolate time series data to desired hub height using instantaneous shear values
 
@@ -331,6 +333,12 @@ def shear_data(df, parameters, limit_type='percentile'):
         'LowSensorName' -> name of column in df containing lowest elevation wind
             speed measurements
         'LowSensorHeight' -> height of measurements represented by LowSensorName
+    min_shear_percentile : float
+        lower percentile threshold for identifying shear outliers. Shear values below this
+        threshold will be overwritten with this threshold.
+    max_shear_percentile : float
+        upper percentile threshold for identifying shear outliers. Shear values above this
+        threshold will be overwritten with this threshold.
 
     Returns
     -------
@@ -343,15 +351,9 @@ def shear_data(df, parameters, limit_type='percentile'):
         np.log(df[parameters['HighSensorName']] / df[parameters['LowSensorName']])
         / np.log(parameters['HighSensorHeight'] / parameters['LowSensorHeight'])
         )
-    # filter/cap shear to 1-99%
-    if limit_type == 'percentile':
-        high_shear = df['shear'].quantile(0.99)
-        low_shear = df['shear'].quantile(0.01)
-    elif limit_type == 'std':
-        high_shear = df['shear'].mean() + df['shear'].std() * 2
-        low_shear = df['shear'].mean() - df['shear'].std() * 2
-    else:
-        raise ValueError("Unrecognized limit_type parameter. Please use 'percentile' or 'std'")
+    # filter/cap shear outliers
+    high_shear = df['shear'].quantile(max_shear_percentile)
+    low_shear = df['shear'].quantile(min_shear_percentile)
     df['shear'][df['shear'] > high_shear] = high_shear
     df['shear'][df['shear'] < low_shear] = low_shear
     # shear data

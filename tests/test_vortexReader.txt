@@ -1,7 +1,7 @@
 Lat=lat  Lon=lon  Hub-Height=height  Timezone=timezone   ASL-Height(avg. 3km-grid)=height  (file requested on date time)
 VORTEX (www.vortex.es) - Computed at 3km resolution based on method data (designed for correlation purposes)
- 
+
 YYYYMMDD	HHMM	M(m/s)	D(deg)	T(C)	De(k/m3)	PRE(hPa)	RiNumber	RH(%)
 20200101	0000	7	0	25	1.225	1013.25	0.10	50.0
-20200101	0010	7	0	25	1.225	1013.25	0.10	50.0
-20200101	0020	7	0	25	1.225	1013.25	0.10	50.0
+20200101	0100	7	0	25	1.225	1013.25	0.10	50.0
+20200101	0200	7	0	25	1.225	1013.25	0.10	50.0
