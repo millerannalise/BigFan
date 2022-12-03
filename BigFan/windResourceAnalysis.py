@@ -12,25 +12,26 @@ from sklearn.linear_model import LinearRegression
 from scipy.stats import norm, f
 from scipy.special import gamma
 from scipy.interpolate import griddata
-from utm import from_latlon # users will probably need to pip install utm the first time
-import geomag # users will probably need to pip install geomag the first time
+from utm import from_latlon
+import geomag
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import os
 from datetime import datetime
 
 
-my_colors = ['#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00', '#cab2d6', '#6a3d9a', '#ffff99', '#b15928',
-             '#8dd3c7', '#ffffb3', '#bebada', '#fb8072', '#80b1d3', '#fdb462', '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd', '#ccebc5', '#ffed6f']
+my_colors = ['#a6cee3', '#1f78b4', '#b2df8a', '#33a02c', '#fb9a99', '#e31a1c', '#fdbf6f', '#ff7f00',
+             '#cab2d6', '#6a3d9a', '#ffff99', '#b15928', '#8dd3c7', '#ffffb3', '#bebada', '#fb8072',
+             '#80b1d3', '#fdb462', '#b3de69', '#fccde5', '#d9d9d9', '#bc80bd', '#ccebc5', '#ffed6f']
 
 
-@dataclasses.dataclass(frozen=True)
 class DataKey:
-    windSpeed_columns: Dict[Union[int, float], str]
-    windDirection_columns: Dict[Union[int, float], str]
-    temperature_columns: Dict[Union[int, float], str]
-    relativeHumidity_columns: Dict[Union[int, float], str]
-    pressure_columns: Dict[Union[int, float], str]
+    def __init__(self):
+        windSpeed_columns: Dict[Union[int, float], str]
+        windDirection_columns: Dict[Union[int, float], str]
+        temperature_columns: Dict[Union[int, float], str]
+        relativeHumidity_columns: Dict[Union[int, float], str]
+        pressure_columns: Dict[Union[int, float], str]
 
     def __post_init__(self):
         # set heights of defaults

@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 import numpy as np
 import pandas as pd
-import timeSeriesOutput as tso
+from BigFan import timeSeriesOutput as tso
 
 
 def test_read_windog_custom_file():
