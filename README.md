@@ -7,3 +7,6 @@ pytest --cov-report html --cov windResourceAnalysis
 
 Auto-update sphinx documentation
 make html
+
+run pre-commit formatting check
+bash precommit.sh

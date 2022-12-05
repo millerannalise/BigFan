@@ -6,14 +6,14 @@ import os
 import sys
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
-print(os.path.abspath(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'BigFan'
 copyright = '2022, Annalise Miller'
 author = 'Annalise Miller'
-release = '0.1'
+release = '0.10.'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -40,3 +40,6 @@ exclude_patterns = []
 
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
+
+def setup(app):
+    app.add_css_file("tweaks.css")
