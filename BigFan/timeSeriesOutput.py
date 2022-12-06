@@ -20,6 +20,8 @@ def read_windog_file(file_path, separator=",", windog_tz=None):
     ----------
     file_path : str
         path to file with windographer output format
+    separator : str
+        column delimiter in windographer file
     windog_tz : Int, optional
         time adjustment for incorrect windographer timestamps. The default is None.
 
@@ -38,6 +40,7 @@ def read_windog_file(file_path, separator=",", windog_tz=None):
             cols = cols.strip("\r\n").split(separator)
             break
     try:
+        # noinspection PyUnboundLocalVariable
         df = pd.read_csv(
             file_path,
             skiprows=save_start,
@@ -61,7 +64,7 @@ def read_windog_file(file_path, separator=",", windog_tz=None):
     if windog_tz is not None:
         df.index = [i + pd.Timedelta(hours=windog_tz) for i in df.index]
     df = df[[k for k in df.keys() if not all(pd.isna(df[k]))]]
-    if "ERA5" in file_path:
+    if "era5" in file_path.lower():
         try:
             df.rename(
                 columns={
@@ -72,9 +75,9 @@ def read_windog_file(file_path, separator=",", windog_tz=None):
                 },
                 inplace=True,
             )
-        except:
+        except KeyError:
             pass
-    if "MERRA2" in file_path:
+    if "merra2" in file_path.lower():
         try:
             df.rename(
                 columns={
@@ -86,7 +89,7 @@ def read_windog_file(file_path, separator=",", windog_tz=None):
                 },
                 inplace=True,
             )
-        except:
+        except KeyError:
             pass
     return df.astype(float)
 
@@ -108,6 +111,8 @@ def read_vortex_file(file_path, separator=None):
         data frame of time series input data.
 
     """
+    cols = None
+    save_start = None
     with open(file_path, newline="") as my_file:
         all_lines = my_file.readlines()
     for ct, line in enumerate(all_lines):
@@ -116,12 +121,14 @@ def read_vortex_file(file_path, separator=None):
             cols = all_lines[ct].encode("utf-8", errors="ignore").decode()
             cols = cols.strip("\r\n").split(separator)
             break
+    if (cols is None) or (save_start is None):
+        raise ValueError("Could not locate the first line in the vortex dataframe: " + file_path)
     all_lines = [i.strip("\r\n").split(separator) for i in all_lines[save_start:]]
     df = pd.DataFrame(all_lines, columns=cols)
     df.index = pd.to_datetime(df["YYYYMMDD"] + df["HHMM"], format="%Y%m%d%H%M")
     df.drop(columns=["YYYYMMDD", "HHMM"], inplace=True)
     df.rename(
-        columns={"M(m/s)": "WS", "D(deg)": "WD", "T(C)": "Temp", "De(k/m3)": "Rho", "PRE(hPa)": "Pressure",},
+        columns={"M(m/s)": "WS", "D(deg)": "WD", "T(C)": "Temp", "De(k/m3)": "Rho", "PRE(hPa)": "Pressure"},
         inplace=True,
     )
     return df.astype(float)
@@ -138,11 +145,15 @@ def create_12x24(df, selected_col, output="column"):
     selected_col : undefined
         name of column you'd like to convert to a 12x24
         column must contain numeric data
+    output : str
+        format of desired output. If "column," a column labeled 12x24 will be added to the input dataframe.
+        If "12x24" a 12x24 dataframe will be returned
 
     Returns
     -------
-    df_12x24 : pd.DataFrame
-        12x24 of selected column with columns=month and rows=hour
+    pd.DataFrame
+        dither the input dataframe with a column labeled 12x24 created using values from the 12x24 matrix
+        or a dataframe containing the 12x24 of selected_col with columns=month and rows=hour
 
     """
     df["month"] = df.index.month
@@ -261,7 +272,7 @@ def append_values(df_target, col_target, df_source, col_source):
     return df_target
 
 
-def calc_AirDensity(df, parameters):
+def calc_air_density(df, parameters):
     """
     calculate air density using temperature and pressure data
 
@@ -296,10 +307,12 @@ def calc_AirDensity(df, parameters):
     return df
 
 
-def calc_TI(df, parameters):
+def calc_ti(df, parameters):
     """
     calculate time series turbulence intensity
 
+    Parameters
+    ----------
     df : pd.DataFrame
         data frame representing time series data with columns containing wind speed
         and wind speed standard deviation data.
@@ -320,10 +333,14 @@ def calc_TI(df, parameters):
     return df
 
 
-def shear_data(df, parameters, min_shear_percentile=0.01, max_shear_percentile=0.99):
+def shear_data(
+    df: pd.DataFrame, parameters: dict, min_shear_percentile: float = 0.01, max_shear_percentile: float = 0.99
+) -> pd.DataFrame:
     """
     extrapolate time series data to desired hub height using instantaneous shear values
 
+    Parameters
+    ----------
     df : pd.DataFrame
         data frame representing time-series data with columns containing wind speed
         at two different heights.
@@ -391,7 +408,7 @@ def gap_fill_ws_wd(df, parameters):
     return df
 
 
-def scale_WS_data(df, parameters):
+def scale_ws_data(df, parameters):
     """
     Scale the average wind speed of a time-series to the appropriate long-term value based on input
     long-term wind speeds at measurement height, global shear value, and desired extrapolated heights
@@ -415,14 +432,14 @@ def scale_WS_data(df, parameters):
 
     """
     for height in parameters["DesiredHeights"]:
-        scaler = (
+        scalar = (
             parameters["LongTermWindSpeed"] * pow(height / parameters["HighSensorHeight"], parameters["ShearValue"])
         ) / df[str(height) + "_WS"].mean()
-        df[str(height) + "_WS"] *= scaler
+        df[str(height) + "_WS"] *= scalar
     return df
 
 
-def create_OpenWindOuptut(df, parameters):
+def create_openwind_output(df, parameters):
     """
     Create an output *.csv file which can be loaded into OpenWind as a time-series mast object
 
@@ -563,26 +580,26 @@ def create_masts(parameters):
         df = append_values(df, "Pressure", parameters["InputFiles"][parameters["PressureName"][0]], "Pressure")
         parameters["PressureName"] = (parameters["PressureName"][0], "Pressure")
 
-    df = calc_AirDensity(df, parameters)
+    df = calc_air_density(df, parameters)
     # shear wind speeds
-    df = shear_data(df, parameters, limit_type="std")
+    df = shear_data(df, parameters)
     if parameters["gap_fill_WS_WD"] in ["12x24", True]:
         # gap fill WS and Dir with 12x24
         df = gap_fill_ws_wd(df, parameters)
     elif parameters["gap_fill_WS_WD"] not in [False, None]:
         raise ValueError("gap_fill_WS_WD not recognized. Please use '12x24' or None")
-    df = calc_TI(df, parameters)
-    df = scale_WS_data(df, parameters)
-    create_OpenWindOuptut(df, parameters)
+    df = calc_ti(df, parameters)
+    df = scale_ws_data(df, parameters)
+    create_openwind_output(df, parameters)
     return df
 
 
-def determineDirectionSector(df, parameters, directionSectors=16):
-    bin_width = 360.0 / directionSectors
+def determine_direction_sector(df, parameters, direction_sectors=16):
+    bin_width = 360.0 / direction_sectors
     df["directionSector"] = (df[parameters["WindDirectionName"]] + (bin_width / 2)) / bin_width
     df["directionSector"] = df["directionSector"].fillna(999)
     df["directionSector"] = df["directionSector"].astype(int)
-    df["directionSector"][df["directionSector"] == directionSectors] = 0
+    df["directionSector"][df["directionSector"] == direction_sectors] = 0
     df["directionSector"] = df["directionSector"].replace(999, np.nan)
     return df
 
@@ -606,7 +623,8 @@ def format_tab(parameters, height, df, header):
 def create_tabs(parameters, df, threshold=1e-5):
     date = datetime.now()
     date = date.strftime("%Y/%m/%d")
-    df = determineDirectionSector(df, parameters)
+    df = determine_direction_sector(df, parameters)
+    df_tabs = []
     for height in parameters["DesiredHeights"]:
         target_ws = parameters["LongTermWindSpeed"] * pow(
             height / parameters["HighSensorHeight"], parameters["ShearValue"]
@@ -633,9 +651,11 @@ def create_tabs(parameters, df, threshold=1e-5):
             + "\n"
             + "\t\t16 1.00 0.00\n"
         )
-        denom = len(df[(~df["directionSector"].isna()) & (~df[str(height) + "_WS"].isna())])
-        cols = [len(df[(df["directionSector"] == i) & (~df[str(height) + "_WS"].isna())]) / denom for i in range(16)]
-        index = [i for i in range(36)]
+        denominator = len(df[(~df["directionSector"].isna()) & (~df[str(height) + "_WS"].isna())])
+        cols = [
+            len(df[(df["directionSector"] == i) & (~df[str(height) + "_WS"].isna())]) / denominator for i in range(16)
+        ]
+        index = [float(i) for i in range(36)]
         index[0] = 0.25
         flag = True
         ct = 0

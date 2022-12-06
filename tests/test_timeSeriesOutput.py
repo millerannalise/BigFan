@@ -177,7 +177,7 @@ def test_append_values_differentResolution():
 
 def test_calc_AirDensity():
     # test air density calculation
-    assert (tso.calc_AirDensity(df_testCSV, test_parameters)['100_rho'] - df_testCSV['Density']).abs().max() < 1e-5
+    assert (tso.calc_air_density(df_testCSV, test_parameters)['100_rho'] - df_testCSV['Density']).abs().max() < 1e-5
 
 
 def test_shear_data():
@@ -185,11 +185,11 @@ def test_shear_data():
 
 
 def test_calc_TI():
-    assert (tso.calc_TI(df_testCSV, test_parameters)['100_TI'] - df_testCSV['TI']).abs().max() < 1e-5
+    assert (tso.calc_ti(df_testCSV, test_parameters)['100_TI'] - df_testCSV['TI']).abs().max() < 1e-5
 
 
 def test_determineDirectionSector():
     assert (
-        tso.determineDirectionSector(
+        tso.determine_direction_sector(
             df_testCSV, test_parameters)['directionSector'] - df_testCSV['WD SECTOR']
         ).abs().max() < 1e-5
