@@ -5,10 +5,11 @@ Created on Fri May 20, 2022
 @author: Annalise Miller
 """
 
-import pandas as pd
-import numpy as np
 import os
 from datetime import datetime
+
+import numpy as np
+import pandas as pd
 
 
 def read_windog_file(file_path, separator=",", windog_tz=None):

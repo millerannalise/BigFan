@@ -51,9 +51,7 @@ setup(
     author="Annalise Miller",
     author_email="annalise.mckenzie.miller@gmail.com",
     package_dir={"BigFan": "BigFan"},
-    package_data={
-        "BigFan": [path.join("lookup_data", "*")],
-    },
+    package_data={"BigFan": [path.join("lookup_data", "*")],},
     description="Wind Resource Assessment Tools",
     long_description=long_description,
     install_requires=install_requires,

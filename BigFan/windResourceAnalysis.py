@@ -5,20 +5,20 @@ Created on Fri Jul 15, 2022
 @author: Annalise Miller
 """
 
-from typing import Dict, Optional, Union, Callable
-import pandas as pd
-import numpy as np
-from sklearn.linear_model import LinearRegression
-from scipy.stats import norm, f
-from scipy.special import gamma
-from scipy.interpolate import griddata
-from utm import from_latlon
-import geomag
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
 import os
 from datetime import datetime
+from typing import Callable, Dict, Optional, Union
 
+import geomag
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib.patches import Rectangle
+from scipy.interpolate import griddata
+from scipy.special import gamma
+from scipy.stats import f, norm
+from sklearn.linear_model import LinearRegression
+from utm import from_latlon
 
 my_colors = [
     "#a6cee3",
@@ -1304,247 +1304,6 @@ def calculate_shear(masts: list, max_veer: float = 100, min_ws: float = 3):
         # TODO: add in displacement height
 
 
-def plot_monthly_ws(masts: list, concurrent: bool = False):
-    """
-    plot monthly wind speed averages of primary wind speed sensor
-
-    Parameters
-    ----------
-    masts : list
-        list of Mast objects.
-    concurrent : bool, optional
-        if True, calculate monthly wind speed averages using only concurrent period data.
-        The default is False.
-
-    Returns
-    -------
-    figPath : str
-        path to the resulting monthly wind speed plot.
-
-    """
-    x = [i for i in range(1, 13)]
-    plt.figure(figsize=(10, 6.4))
-    for ct, mast in enumerate(masts):
-        if concurrent:
-            y = [
-                mast.MastData.df[mast.MastData.primary_windSpeed_column][
-                    (mast.MastData.df.index.month == i) & (mast.MastData.df["CP"] == 1)
-                ].mean()
-                for i in range(1, 13)
-            ]
-        else:
-            y = [
-                mast.MastData.df[mast.MastData.primary_windSpeed_column][mast.MastData.df.index.month == i].mean()
-                for i in range(1, 13)
-            ]
-        plt.plot(x, y, color=my_colors[ct], label=mast.id + ": " + str(mast.MastData.primary_windSpeed_column_ht) + "m")
-    plt.legend(loc="upper center", bbox_to_anchor=(0, -0.1, 1, 0), ncol=4)
-    plt.title("Monthly mean wind speed")
-    plt.xlabel("Month")
-    plt.ylabel("Mean wind speed (m/s)")
-    plt.xlim([1, 12])
-    ct = 0
-    while os.path.exists(
-        os.path.join(os.path.abspath(os.path.dirname(__file__)), "figs", "MonthlyWS" + str(ct) + ".png")
-    ):
-        ct += 1
-    fig_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "figs", "MonthlyWS" + str(ct) + ".png")
-    plt.savefig(fig_path, bbox_inches="tight")
-    plt.close()
-    return fig_path
-
-
-def plot_diurnal_ws(masts: list, concurrent: bool = False):
-    """
-    plot diurnal wind speed averages of primary wind speed sensor
-
-    Parameters
-    ----------
-    masts : list
-        list of Mast objects.
-    concurrent : bool, optional
-        if True, calculate diurnal wind speed averages using only concurrent period data.
-        The default is False.
-
-    Returns
-    -------
-    figPath : str
-        path to the resulting diurnal wind speed plot.
-
-    """
-    x = [i for i in range(24)]
-    plt.figure(figsize=(10, 6.4))
-    for ct, mast in enumerate(masts):
-        if concurrent:
-            y = [
-                mast.MastData.df[mast.MastData.primary_windSpeed_column][
-                    (mast.MastData.df.index.hour == i) & (mast.MastData.df["CP"] == 1)
-                ].mean()
-                for i in range(24)
-            ]
-        else:
-            y = [
-                mast.MastData.df[mast.MastData.primary_windSpeed_column][mast.MastData.df.index.hour == i].mean()
-                for i in range(24)
-            ]
-        plt.plot(x, y, color=my_colors[ct], label=mast.id + ": " + str(mast.MastData.primary_windSpeed_column_ht) + "m")
-    plt.legend(loc="upper center", bbox_to_anchor=(0, -0.1, 1, 0), ncol=4)
-    plt.title("Diurnal mean wind speed")
-    plt.xlabel("Hour")
-    plt.ylabel("Mean wind speed (m/s)")
-    plt.xlim([0, 23])
-    ct = 0
-    while os.path.exists(
-        os.path.join(os.path.abspath(os.path.dirname(__file__)), "figs", "DiurnalWS" + str(ct) + ".png")
-    ):
-        ct += 1
-    fig_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "figs", "DiurnalWS" + str(ct) + ".png")
-    plt.savefig(fig_path, bbox_inches="tight")
-    plt.close()
-    return fig_path
-
-
-def plot_ws_distribution(masts: list, concurrent: bool = False):
-    """
-    plot wind speed distribution of primary wind speed sensor
-
-    Parameters
-    ----------
-    masts : list
-        list of Mast objects.
-    concurrent : bool, optional
-        if True, calculate wind speed distributions using only concurrent period data.
-        The default is False.
-
-    Returns
-    -------
-    figPath : str
-        path to the resulting wind speed distribution plot.
-
-    """
-    x = [i + 0.5 for i in range(25)]
-    plt.figure(figsize=(10, 6.4))
-    for ct, mast in enumerate(masts):
-        if concurrent:
-            y = [
-                len(
-                    mast.MastData.df[
-                        (mast.MastData.df[mast.MastData.primary_windSpeed_column] < i + 1)
-                        & (mast.MastData.df[mast.MastData.primary_windSpeed_column] >= i)
-                        & (mast.MastData.df["CP"] == 1)
-                    ]
-                )
-                for i in range(25)
-            ]
-        else:
-            y = [
-                len(
-                    mast.MastData.df[
-                        (mast.MastData.df[mast.MastData.primary_windSpeed_column] < i + 1)
-                        & (mast.MastData.df[mast.MastData.primary_windSpeed_column] >= i)
-                    ]
-                )
-                for i in range(25)
-            ]
-        y = [i / sum(y) for i in y]
-        plt.plot(x, y, color=my_colors[ct], label=mast.id + ": " + str(mast.MastData.primary_windSpeed_column_ht) + "m")
-    plt.legend(loc="upper center", bbox_to_anchor=(0, -0.1, 1, 0), ncol=4)
-    plt.title("Wind speed distribution")
-    plt.xlabel("Wind Speed")
-    plt.ylabel("Frequency")
-    plt.xlim([0, 25])
-    ct = 0
-    while os.path.exists(
-        os.path.join(os.path.abspath(os.path.dirname(__file__)), "figs", "WSDistribution" + str(ct) + ".png")
-    ):
-        ct += 1
-    fig_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "figs", "WSDistribution" + str(ct) + ".png")
-    plt.savefig(fig_path, bbox_inches="tight")
-    plt.close()
-    return fig_path
-
-
-def plot_wind_rose(masts: list, concurrent: bool = False):
-    """
-    plot wind direction rose of primary wind direction sensor
-
-    Parameters
-    ----------
-    masts : list
-        list of Mast objects.
-    concurrent : bool, optional
-        if True, calculate wind direction rose using only concurrent period data.
-        The default is False.
-
-    Returns
-    -------
-    figPath : str
-        path to the resulting wind direction rose plot.
-
-    """
-    fig = plt.figure(figsize=(6.4, 6.4))
-    ax = fig.add_subplot(111, polar=True)
-    ax.set_theta_offset(np.pi / 2)
-    ax.set_theta_direction(-1)
-    for ct, mast in enumerate(masts):
-        x = [i * 2 * np.pi / mast.MastData.directionSectors for i in range(mast.MastData.directionSectors)]
-        if concurrent:
-            y = [
-                len(mast.MastData.df[(mast.MastData.df["directionSector"] == i) & (mast.MastData.df["CP"] == 1)])
-                for i in range(mast.MastData.directionSectors)
-            ]
-        else:
-            y = [
-                len(mast.MastData.df[mast.MastData.df["directionSector"] == i])
-                for i in range(mast.MastData.directionSectors)
-            ]
-        y = [i / sum(y) for i in y]
-        x.append(x[0])
-        y.append(y[0])
-        plt.plot(
-            x, y, color=my_colors[ct], label=mast.id + ": " + str(mast.MastData.primary_windDirection_column_ht) + "m"
-        )
-    plt.legend(loc="upper center", bbox_to_anchor=(0, -0.1, 1, 0), ncol=4)
-    plt.title("Wind Rose")
-    ct = 0
-    while os.path.exists(
-        os.path.join(os.path.abspath(os.path.dirname(__file__)), "figs", "windRose" + str(ct) + ".png")
-    ):
-        ct += 1
-    fig_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "figs", "windRose" + str(ct) + ".png")
-    plt.savefig(fig_path, bbox_inches="tight")
-    plt.close()
-    return fig_path
-
-
-def basic_quad_plots(masts: list, concurrent=False):
-    """
-    plot monthly wind speeds, diurnal wind speeds, wind speed distributions,
-    and wind direction rose of primary wind speed and wind direction sensors
-
-    Parameters
-    ----------
-    masts : list
-        list of Mast objects.
-    concurrent : bool, optional
-        if True, create plots using only concurrent period data.
-        The default is False.
-
-    Returns
-    -------
-    figs : list
-        list of paths to resulting figures.
-
-    """
-    figs = [
-        plot_monthly_ws(masts, concurrent),
-        plot_diurnal_ws(masts, concurrent),
-        plot_ws_distribution(masts, concurrent),
-        plot_wind_rose(masts, concurrent),
-    ]
-    return figs
-
-
 def por_plot(masts: list):
     """
     plot the period of record and missing data in each masts' primary wind speed sensor
@@ -1620,7 +1379,7 @@ if __name__ == "__main__":
 
     """ Initiate MET002 """
     mastID = "MET002"
-    latitude = 25.1
+    latitude = 45.1
     longitude = -120.1
     mastElevation = 1421
     input_file = r"test\test_windographerReader_custom.txt"
