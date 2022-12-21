@@ -26,17 +26,26 @@ def read_netcdf(path: str, variable_id: str):
     return df
 
 
-def format_ws_wd(df):
+def format_era5(df):
     if ("u100" in df.columns) & ("v100" in df.columns):
         df["WS_100m"] = pow(pow(df["u100"], 2) + pow(df["v100"], 2), 0.5)
-        df["WD_100m"] = np.arctan(df["v100"] / df["u100"])
-        df["WD_100m"][df["WD_100m"] < 180] += 180
-        df["WD_100m"][df["WD_100m"] <= 180] -= 180
+        df["WD_100m"] = np.arctan(df["v100"] / df["u100"]) * 180.0 / np.pi
+        # trig
+        df["WD_100m"][(df["u100"] < 0) & (df["v100"] > 0)] += 360
+        df["WD_100m"][df["v100"] < 0] += 180
+        # switch from "going" direction to "coming from"
+        df["WD_100m"] += 180
+        df["WD_100m"][df["WD_100m"] >= 360] -= 360
     if ("u10" in df.columns) & ("v10" in df.columns):
         df["WS_10m"] = pow(pow(df["u10"], 2) + pow(df["v10"], 2), 0.5)
-        df["WD_10m"] = np.arctan(df["v10"] / df["u10"])
-        df["WD_10m"][df["WD_10m"] < 180] += 180
-        df["WD_10m"][df["WD_10m"] <= 180] -= 180
+        df["WD_10m"] = np.arctan(df["v10"] / df["u10"]) * 180.0 / np.pi
+        # trig
+        df["WD_10m"][(df["u10"] < 0) & (df["v10"] > 0)] += 360
+        df["WD_10m"][df["v10"] < 0] += 180
+        # switch from "going" direction to "coming from"
+        df["WD_10m"] += 180
+        df["WD_10m"][df["WD_10m"] >= 360] -= 360
+    df["t2m"] -= 273.15
     return df
 
 
@@ -74,14 +83,13 @@ def pull_era5(
             c = cdsapi.Client()
             c.retrieve("reanalysis-era5-single-levels", api_call, variable + "_" + data_year + ".nc")
             df_sub = pd.concat([df_sub, read_netcdf(variable + "_" + data_year + ".nc", variable_id)])
-            # TODO: add file removal
             if test is False:
                 try:
                     os.remove(variable + "_" + data_year + ".nc")
-                except:
+                except PermissionError:
                     print("could not remove file: ", variable + "_" + data_year + ".nc")
         df = pd.concat([df, df_sub], axis=1)
-    df = format_ws_wd(df)
+    df = format_era5(df)
     return df
 
 
@@ -132,7 +140,7 @@ def pull_prism(latitude: float, longitude: float, elevation: float, start_year: 
     return df
 
 
-def pull_nasa(latitude: float, longitude: float, elevation: float, start_year: int = None):
+def pull_noaa(latitude: float, longitude: float, elevation: float, start_year: int = None):
     current_date = datetime.now()
     # set time back 6 months to ensure stable version of data
     if current_date.month > 6:
@@ -174,11 +182,28 @@ def pull_nasa(latitude: float, longitude: float, elevation: float, start_year: i
 
 
 if __name__ == "__main__":
-    # my_df = pull_era5(45, -120, start_year=2015, end_year=2018, test=True)
-    # my_df.to_csv(r'C:\Users\Annalise\Documents\BigFan\tests\era5_2019.csv')
-    test_lat = 45
-    test_lon = -120
-    test_elevation = 1352
-    nasa_df = pull_nasa(test_lat, test_lon, test_elevation, start_year=2018)
-    # prism_df = pull_prism(test_lat, test_lon, test_elevation)
-    nasa_df.to_csv(r"C:\Users\Annalise\Downloads\nasaTest.csv")
+    test_lat = 41.237822
+    test_lon = -89.923782
+    test_elevation = 200
+    # my_df = pull_era5(test_lat, test_lon, start_year=2020)
+
+    # nasa_df = pull_noaa(test_lat, test_lon, test_elevation, start_year=2020)
+    # temp_df = pd.DataFrame()
+    # u_df = pd.DataFrame()
+    # v_df = pd.DataFrame()
+    # press_df = pd.DataFrame()
+    # directory = r'C:\Users\Annalise\Documents\BigFan\tests\era5 downloads\31p2378N_89p9238W'
+    # for file in os.listdir(directory):
+    #     if 'temperature' in file:
+    #         temp_df = pd.concat([temp_df, read_netcdf(os.path.join(directory, file), 't2m')])
+    #     if '100m_u' in file:
+    #         u_df = pd.concat([u_df, read_netcdf(os.path.join(directory, file), 'u100')])
+    #     if '100m_v' in file:
+    #         v_df = pd.concat([v_df, read_netcdf(os.path.join(directory, file), 'v100')])
+    #     if 'pressure' in file:
+    #         press_df = pd.concat([press_df, read_netcdf(os.path.join(directory, file), 'sp')])
+    # temp_df['u100'] = u_df['u100']
+    # temp_df['v100'] = v_df['v100']
+    # temp_df['sp'] = press_df['sp']
+    # df = format_era5(temp_df)
+    # temp_df.to_csv(r'C:\Users\Annalise\Documents\BigFan\tests\era5Test_IL.csv')

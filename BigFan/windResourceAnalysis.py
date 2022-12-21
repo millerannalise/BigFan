@@ -7,18 +7,17 @@ Created on Fri Jul 15, 2022
 
 import os
 from datetime import datetime
-from typing import Callable, Dict, Optional, Union
+from typing import Callable, Optional
 
-import geomag
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.patches import Rectangle
 from scipy.interpolate import griddata
-from scipy.special import gamma
-from scipy.stats import f, norm
-from sklearn.linear_model import LinearRegression
 from utm import from_latlon
+
+from BigFan import dataStructures as ds
+from BigFan import mcp
 
 my_colors = [
     "#a6cee3",
@@ -46,476 +45,6 @@ my_colors = [
     "#ccebc5",
     "#ffed6f",
 ]
-
-
-class DataKey:
-    def __init__(
-        self,
-        wind_speed_columns: Dict[Union[int, float], str],
-        wind_direction_columns: Dict[Union[int, float], str],
-        temperature_columns: Dict[Union[int, float], str],
-        relative_humidity_columns: Dict[Union[int, float], str],
-        pressure_columns: Dict[Union[int, float], str],
-    ):
-        self.windSpeedColumns = wind_speed_columns
-        self.windDirectionColumns = wind_direction_columns
-        self.temperatureColumns = temperature_columns
-        self.relativeHumidityColumns = relative_humidity_columns
-        self.pressureColumns = pressure_columns
-
-        # Set default values for column height
-        self.default_primary_windSpeed_column_ht = self.get_default_primary_key(self.windSpeedColumns)
-        self.default_secondary_windSpeed_column_ht = self.get_default_secondary_key(self.windSpeedColumns)
-        self.default_primary_windDirection_column_ht = self.get_default_primary_key(self.windDirectionColumns)
-        self.default_primary_temperature_column_ht = self.get_default_primary_key(self.temperatureColumns)
-        # get defaults for info that may not be on a mast
-        self.default_primary_relativeHumidity_column_ht = self.get_default_primary_key(self.relativeHumidityColumns)
-        self.default_primary_pressure_column_ht = self.get_default_primary_key(self.pressureColumns)
-
-        # set column names of defaults
-        # info that will definitely be on a mast
-        self.default_primary_windSpeed_column = self.windSpeedColumns[self.default_primary_windSpeed_column_ht]
-        self.default_secondary_windSpeed_column = self.windSpeedColumns[self.default_secondary_windSpeed_column_ht]
-        self.default_primary_windDirection_column = self.windDirectionColumns[
-            self.default_primary_windDirection_column_ht
-        ]
-        self.default_primary_temperature_column = self.temperatureColumns[self.default_primary_temperature_column_ht]
-
-        # info that may not be on a mast
-        if len(self.relativeHumidityColumns) > 0:
-            self.default_primary_relativeHumidity_column = (
-                self.relativeHumidityColumns[self.default_primary_relativeHumidity_column_ht],
-            )
-        else:
-            self.default_primary_relativeHumidity_column = None
-        if len(self.pressureColumns) > 0:
-            self.default_primary_pressure_column = self.pressureColumns[self.default_primary_pressure_column_ht]
-        else:
-            self.default_primary_pressure_column = None
-
-    @staticmethod
-    def get_default_primary_key(possible_keys: Dict[Union[int, float], str]) -> Optional[float]:
-        """
-        return default primary key for a sensor group, defined as the sensor with the highest measurement height
-
-        Parameters
-        ----------
-        possible_keys : dict
-            dictionary of height: name pairs which define a group of sensors (eg. all anemometers)
-
-        Returns
-        -------
-        float or None
-            Key for default primary sensor if sensor group contains 1 or more items
-
-        """
-        if len(possible_keys) > 0:
-            # return the name of the topmost sensor of a given type
-            return max(possible_keys.keys())
-        else:
-            return None
-
-    @staticmethod
-    def get_default_secondary_key(possible_keys: Dict[Union[int, float], str]) -> Optional[float]:
-        """
-        return default secondary key for a sensor group, defined as the sensor closest to 20 m below the primary sensor
-        height
-
-        Parameters
-        ----------
-        possible_keys : dict
-            dictionary of height: name pairs which define a group of sensors (eg. all anemometers)
-
-        Returns
-        -------
-        float or None
-            Key for default primary sensor if sensor group contains 2 or more items
-
-        """
-        # determine the default lower wind speed sensor for shear
-        target = max(possible_keys.keys()) - 20
-        difference = 1e6
-        secondary = None
-        for key, value in possible_keys.items():
-            if abs(key - target) < difference:
-                secondary = key
-        return secondary
-
-
-class MastData:
-    def __init__(self, file_path: str, data_key: Optional[DataKey] = None, source: str = "windog", time_shift: int = 0):
-        self.file_path: str = file_path
-        self.directionSectors: int = 16
-        if source == "windog":
-            self.df: Optional[pd.DataFrame] = self._add_time_series(file_path)
-            if data_key is None:
-                raise ValueError(
-                    "Windographer files that do not originate from the data downloader module must include a data key!"
-                )
-            # decrypt data
-            self.data_key: DataKey = data_key
-        elif source == "vortex":
-            self.df: Optional[pd.DataFrame] = self._add_vortex(file_path)
-            data_key = DataKey({60: "M(m/s)"}, {60: "D(deg)"}, {60: "T(C)"}, {60: "PRE(hPa)"}, {60: "RH(%)"})
-            self.data_key: DataKey = data_key
-        elif source == "windog_download":
-            self.df: Optional[pd.DataFrame] = self._add_time_series(file_path, "\t")
-            if "era5" in file_path.lower():
-                data_key = DataKey(
-                    {100: "Speed_100m [m/s]"},
-                    {100: "Direction_100m [degrees]"},
-                    {2: "Temperature_2m [degrees C]"},
-                    {0: "Pressure_0m [kPa]"},
-                    {},
-                )
-            elif "merra2" in file_path.lower():
-                data_key = DataKey(
-                    {60: "Speed_50m [m/s]"},
-                    {60: "Direction_50m [degrees]"},
-                    {10: "Temperature_10m [degrees C]", 2: "Temperature_2m [degrees C]"},
-                    {0: "Pressure_0m [kPa]"},
-                    {},
-                )
-            else:
-                raise ValueError(
-                    'Please ensure that "merra2" or "era5" (case insensitive) is in the file name of the data '
-                    + "from the windographer data downloader."
-                )
-            self.data_key: DataKey = data_key
-        elif source == "csv":
-            self.df: Optional[pd.DataFrame] = self._add_csv(file_path)
-            if data_key is None:
-                raise ValueError("csv input must include a data key!")
-            # decrypt data
-            self.data_key: DataKey = data_key
-        else:
-            raise ValueError(
-                "source input: "
-                + str(source)
-                + ' is not recognized. Please use "windog", "vortex" or "windog_download", or "csv"'
-            )
-
-        # meta data on inputs
-        self.data_start: pd.Timestamp = self.df.index[0]
-        self.data_end: pd.Timestamp = self.df.index[-1]
-        self.refPeriod_start: pd.Timestamp = self.df.index[0]
-        self.refPeriod_end: pd.Timestamp = self.df.index[-1]
-
-        # validate data
-        self._validate_data_key(self.df.columns.tolist(), data_key)
-        # set relevant column names
-        self.primary_windSpeed_column: str = data_key.default_primary_windSpeed_column
-        self.secondary_windSpeed_column: str = data_key.default_secondary_windSpeed_column
-        self.primary_windDirection_column: str = data_key.default_primary_windDirection_column
-        self.primary_temperature_column: str = data_key.default_primary_temperature_column
-        self.primary_relativeHumidity_column: str = data_key.default_primary_relativeHumidity_column
-        self.primary_pressure_column: str = data_key.default_primary_pressure_column
-        # set relative column heights
-        self.primary_windSpeed_column_ht: Union[int, float] = data_key.default_primary_windSpeed_column_ht
-        self.secondary_windSpeed_column_ht: Union[int, float] = data_key.default_secondary_windSpeed_column_ht
-        self.primary_windDirection_column_ht: Union[int, float] = data_key.default_primary_windDirection_column_ht
-        self.primary_temperature_column_ht: Union[int, float] = data_key.default_primary_temperature_column_ht
-        self.primary_relativeHumidity_column_ht: Union[int, float] = data_key.default_primary_relativeHumidity_column_ht
-        self.primary_pressure_column_ht: Union[int, float] = data_key.default_primary_pressure_column_ht
-
-        # key data analysis outputs
-        self.globalShear: Optional[float] = None
-        self.directionalShear: Optional[float] = None
-        # TODO: select these and fill in variables
-        self.longTerm_measurementHeight_windSpeed: Optional[float] = None
-        self.longTerm_hubHeight_windSpeed: Optional[float] = None
-
-        # add direction sectors
-        self._get_direction_sector()
-        self.directional_WindSpeed = self._get_directional_data()
-
-        # get weibull distribution factors
-        self._get_weibull_fit()
-
-        # apply time shift
-        self.time_shift = time_shift
-        if time_shift != 0:
-            self.df.index = self.df.index + pd.Timedelta(hours=time_shift)
-
-        # set up for mast relationships
-        self.longTerm_corr = pd.DataFrame(index=["Time steps", "Offset", "Slope", "R2"])
-        self.mast_corr = pd.DataFrame(index=["Time steps", "Offset", "Slope", "R2"])
-
-    @staticmethod
-    def _add_time_series(file_path: str, separator: str = ","):
-        # read windog txt file format
-        with open(file_path, newline="") as my_file:
-            all_lines = my_file.readlines()
-        for ct, line in enumerate(all_lines):
-            if all_lines[ct][:9].lower() == "date/time":
-                save_start = ct + 1
-                cols = all_lines[ct].encode("utf-8", errors="ignore").decode()
-                cols = cols.strip("\r\n").split(separator)
-                break
-        try:
-            # noinspection PyUnboundLocalVariable
-            df = pd.read_csv(
-                file_path,
-                skiprows=save_start,
-                names=cols,
-                sep=separator,
-                index_col=0,
-                parse_dates=True,
-                infer_datetime_format=True,
-                encoding_errors="ignore",
-            )
-        except TypeError:
-            df = pd.read_csv(
-                file_path,
-                skiprows=save_start,
-                names=cols,
-                sep=separator,
-                index_col=0,
-                parse_dates=True,
-                infer_datetime_format=True,
-            )
-        df = df[[k for k in df.keys() if not all(pd.isna(df[k]))]]
-        return df.astype(float)
-
-    @staticmethod
-    def _add_vortex(file_path: str):
-        # read vortex file
-        with open(file_path, newline="") as my_file:
-            all_lines = my_file.readlines()
-        flag = False
-        df = []
-        for ct, line in enumerate(all_lines):
-            if flag:
-                line = line.encode("utf-8", errors="ignore").decode()
-                line = line.strip("\r\n").split(" ")
-                while "" in line:
-                    line.remove("")
-                df.append(line)
-            if all_lines[ct][:8] == "YYYYMMDD":
-                flag = True
-                cols = line.encode("utf-8", errors="ignore").decode()
-                cols = cols.strip("\r\n").split(" ")
-                while "" in cols:
-                    cols.remove("")
-        # noinspection PyUnboundLocalVariable
-        df = pd.DataFrame(df, columns=cols)
-        df = df[[k for k in df.keys() if not all(pd.isna(df[k]))]]
-        start_time = pd.to_datetime(df["YYYYMMDD"][0] + df["HHMM"][0], format="%Y%m%d%H%M")
-        df.index = [start_time + pd.Timedelta(hours=i) for i in range(len(df))]
-        df.drop(columns=["YYYYMMDD", "HHMM"], inplace=True)
-        return df.astype(float)
-
-    @staticmethod
-    def _add_csv(file_path: str):
-        # read csv file
-        try:
-            df = pd.read_csv(
-                file_path, index_col=0, parse_dates=True, infer_datetime_format=True, encoding_errors="ignore"
-            )
-        except TypeError:
-            df = pd.read_csv(file_path, index_col=0, parse_dates=True, infer_datetime_format=True)
-        df = df[[k.strip() for k in df.keys() if not all(pd.isna(df[k]))]]
-        return df.astype(float)
-
-    @staticmethod
-    def _validate_data_key(columns: list, data_key: DataKey):
-        sensor_types = list(data_key.windSpeedColumns.values())
-        sensor_types.extend(list(data_key.windDirectionColumns.values()))
-        sensor_types.extend(list(data_key.temperatureColumns.values()))
-        sensor_types.extend(list(data_key.relativeHumidityColumns.values()))
-        sensor_types.extend(list(data_key.pressureColumns.values()))
-        sensor_types = set(sensor_types)
-        sensor_types = [i for i in sensor_types if i not in columns]
-        if len(sensor_types) > 0:
-            raise ValueError(
-                "The following input columns were not found in the windographer file: " + ", ".join(sensor_types)
-            )
-
-    def _get_direction_sector(self):
-        bin_width = 360.0 / self.directionSectors
-        self.df["directionSector"] = (self.df[self.primary_windDirection_column] + (bin_width / 2)) / bin_width
-        self.df["directionSector"] = self.df["directionSector"].fillna(999)
-        self.df["directionSector"] = self.df["directionSector"].astype(int)
-        self.df["directionSector"][self.df["directionSector"] == self.directionSectors] = 0
-        self.df["directionSector"] = self.df["directionSector"].replace(999, np.nan)
-
-    def _get_weibull_fit(self, threshold: float = 1e-5):
-        mast_k = {}
-        mast_a = {}
-        for key, sensor in self.data_key.windSpeedColumns.items():
-            mean_val = self.df[sensor].mean()
-            total_vals = len(self.df[sensor].dropna())
-            x = len(self.df[self.df[sensor] > mean_val]) / total_vals
-            k = 2.0
-            step = 0.1
-            flag = True
-            ct = 0
-            max_ct = 50
-            move = [0, 0]
-            while flag & (ct < max_ct):
-                a = pow((pow(self.df[sensor], 3).sum() / total_vals) / gamma(3 / k + 1), 1.0 / 3)
-                numerator = pow((self.df[sensor].sum() / total_vals) / a, k)
-                test_val = np.log(x) + numerator
-                if abs(test_val) < threshold:
-                    flag = False
-                    mast_k[sensor] = k
-                    mast_a[sensor] = a
-                elif test_val < 0:
-                    k -= step
-                    move = [move[-1], 1]
-                else:
-                    k += step
-                    move = [move[-1], -1]
-                if sum(move) == 0:
-                    step /= 2
-                ct += 1
-        self.k = mast_k
-        self.A = mast_a
-        pass
-
-    def _get_directional_data(self) -> pd.DataFrame:
-        self.directional_WindSpeed = pd.DataFrame(index=[i for i in range(self.directionSectors)])
-        self.directional_WindSpeed["wind speed (m/s)"] = [
-            self.df[self.primary_windSpeed_column][self.df[self.primary_windDirection_column] == i].mean()
-            for i in range(self.directionSectors)
-        ]
-        self.directional_WindSpeed["frequency"] = [
-            len(self.df[self.df[self.primary_windDirection_column] == i].dropna()) for i in range(self.directionSectors)
-        ]
-        self.directional_WindSpeed["frequency"] = (
-            self.directional_WindSpeed["frequency"] / self.directional_WindSpeed["frequency"].sum()
-        )
-        return self.directional_WindSpeed
-
-    def calc_monthly_wind_speed(self) -> pd.DataFrame:
-        # initiate data frame
-        monthly_df = self.df[self.data_key.windSpeedColumns.values()].resample("M").agg(["mean", "count"])
-        possible_dp = monthly_df.index.day.values * 24 * 6
-        for sensor in self.data_key.windSpeedColumns.values():
-            # calculate data coverage rate
-            monthly_df[(sensor, "DCR")] = monthly_df[sensor]["count"] / possible_dp
-        # remove time stamps from incomplete months at beginning and end
-        possible_dp[0] -= (
-            self.df.index[0] - pd.Timestamp(self.df.index[0].year, self.df.index[0].month, 1)
-        ).total_seconds() / 600
-        if self.df.index[-1].month == 12:
-            possible_dp[-1] -= (
-                pd.Timestamp(self.df.index[-1].year + 1, 1, 1) - self.df.index[-1]
-            ).total_seconds() / 600
-        else:
-            possible_dp[-1] -= (
-                (
-                    pd.Timestamp(self.df.index[-1].year, self.df.index[-1].month + 1, 1) - self.df.index[-1]
-                ).total_seconds()
-                / 600
-            ) - 1
-        monthly_df["possible_dataPoints"] = possible_dp
-        order = [("possible_dataPoints", "")]
-        for sensor in self.data_key.windSpeedColumns.values():
-            # calculate data availability
-            monthly_df[(sensor, "DRR")] = monthly_df[sensor]["count"] / monthly_df["possible_dataPoints"]
-            order.extend([(sensor, "count"), (sensor, "DCR"), (sensor, "DRR"), (sensor, "mean")])
-        return monthly_df[order]
-
-    @staticmethod
-    def check_linear_regression_trend(series: pd.Series, threshold: float = 0.9) -> bool:
-        year = np.array(series.index.year)
-        sxx = pow(year - year.mean(), 2).sum()
-        syy = pow(series - series.mean(), 2).sum()
-        sxy = ((series - series.mean()) * (year - year.mean())).sum()
-        if series.size == 2:
-            sig_y = 0
-        elif series.size > 2:
-            sig_y = pow((syy - (pow(sxy, 2) / sxx)) / (series.size - 2), 0.5)
-        else:
-            raise ValueError("Fewer than 2 years found in time series data")
-        m = sxy / sxx
-        k = abs(m) / (sig_y / pow(sxx, 0.5))
-        dist = 2 * norm.cdf(k) - 1
-        return abs(dist) > threshold
-
-    @staticmethod
-    def check_mann_kendall_trend(series, threshold: float = 0.9) -> bool:
-        series = pd.Series([series[ct] - series[ct - 1] for ct in range(1, len(series))])
-        group_add = sum([i * (i - 1) * (2 * i + 5) for i in series.value_counts()])
-        total_vals = len(series)
-        series[series > 0] = 1
-        series[series < 0] = -1
-        s = sum([series[ct + 1 :].sum() for ct in range(len(series) - 1)])
-        if s > 0:
-            s -= 1
-        elif s < 0:
-            s += 1
-        sig_s = pow((total_vals * (total_vals - 1) * (2 * total_vals + 5) - group_add) / 18, 0.5)
-        dist = 2 * abs(norm.cdf(s / sig_s)) - 1
-        return abs(dist) > threshold
-
-    # noinspection PyUnresolvedReferences
-    @staticmethod
-    def check_easterling_peterson_discontinuity(series: pd.Series, threshold: float = 0.9) -> bool:
-        if len(series) < 7:
-            raise ValueError("Insufficient data in long-term series (<7 years)")
-        series.index = [i for i in range(series.size)]
-        linear_regressor = LinearRegression()
-        reg0 = linear_regressor.fit(series.index.values.reshape(-1, 1), series.values.reshape(-1, 1))
-        rss0 = pow(series - series.index.values * reg0.coef_[0][0] + reg0.intercept_[0], 2).sum()
-        dof = len(series) - 4
-        max_rss = -1
-        u = None
-        for break_pt in range(3, len(series) - 3):
-            rss1 = 0
-            linear_regressor = LinearRegression()
-            reg1 = linear_regressor.fit(
-                series.index.values[:break_pt].reshape(-1, 1), series.values[:break_pt].reshape(-1, 1)
-            )
-            rss1 += pow(
-                series[:break_pt] - series.index.values[:break_pt] * reg1.coef_[0][0] + reg1.intercept_[0], 2
-            ).sum()
-            linear_regressor = LinearRegression()
-            reg2 = linear_regressor.fit(
-                series.index.values[break_pt:].reshape(-1, 1), series.values[break_pt:].reshape(-1, 1)
-            )
-            rss1 += pow(
-                series[break_pt:] - series.index.values[break_pt:] * reg2.coef_[0][0] + reg2.intercept_[0], 2
-            ).sum()
-            if rss1 > max_rss:
-                max_rss = rss1 * 1
-                u = ((rss0 - rss1) / 3) / (rss1 / dof)
-        return u > f.cdf(threshold, 3, dof)
-
-    def verify_long_term_viability(self, series_input: pd.DataFrame, threshold: float = 0.95) -> (bool, bool, bool):
-        # set up annual data
-        max_vals = pd.Timedelta(days=365) / (series_input.index[1] - series_input.index[0])
-        df = pd.DataFrame([])
-        df["WS"] = series_input.resample("A").mean()
-        df["drr"] = series_input.resample("A").count() / max_vals
-        df = df["WS"][df["drr"] > threshold]
-        # run tests
-        lin_reg = self.check_linear_regression_trend(df)
-        mann_kendall = self.check_mann_kendall_trend(df)
-        easterling_peterson = self.check_easterling_peterson_discontinuity(df)
-        return lin_reg, mann_kendall, easterling_peterson
-
-
-class Mast:
-    def __init__(self, mast_id: str, lat: float, lon: float, elevation: Optional[float]):
-        self.id: str = mast_id
-        self.lat: float = lat
-        self.lon: float = lon
-        self.elevation: float = elevation
-        easting, northing, zone, letter = from_latlon(lat, lon)
-        self.easting: float = easting
-        self.northing: float = northing
-        self.utm_zone: int = zone
-        self.magnetic_declination = geomag.declination(lat, lon)
-        self.MastData: Optional[MastData] = None
-
-    def has_data(self) -> bool:
-        return self.MastData is not None
-
-    def add_data(self, filepath: str, data_key: DataKey = None, source: str = "windog", time_shift: int = 0):
-        self.MastData = MastData(filepath, data_key, source, time_shift)
-        print("Data added to mast: " + self.id + "!")
 
 
 def check_combined_data(masts: list, are_masts: bool = True) -> list:
@@ -559,7 +88,7 @@ def check_combined_data(masts: list, are_masts: bool = True) -> list:
     for mast1 in my_masts:
         for mast2 in my_masts:
             if mast1.id != mast2.id:
-                slope, offset = correlate_lls(direction, mast1.id, mast2.id)
+                slope, offset = mcp.correlate_lls(direction, mast1.id, mast2.id)
                 slopes[mast1.id][mast2.id] = slope
                 offsets[mast1.id][mast2.id] = offset
     if are_masts:
@@ -601,93 +130,6 @@ def apply_global_pc(time_series: pd.Series, p_curve: pd.DataFrame, prod_col: str
         wind speed and production time series
     """
     return np.interp(time_series, p_curve.index, p_curve[prod_col])
-
-
-# noinspection PyProtectedMember
-def long_term_selection_criteria(mast: Mast, lt_sources: list) -> pd.DataFrame:
-    """
-    Condense list of long-term data sources to a common period and compare sources to
-    a reference mast
-
-    Parameters
-    ----------
-    mast : Mast
-        reference mast used for comparison to potential long-term data sources.
-    lt_sources : list
-        list of Mast objects representing long term data sources.
-
-    Returns
-    -------
-    selection : pd.DataFrame
-        Summary statistics describing the relationship between the reference mast and long-term source.
-
-    """
-    # select common period
-    data_end = min([i.MastData.data_end for i in lt_sources])
-    data_end = pd.Timestamp(data_end.year, data_end.month, 1)  # make it start on the 1st of the month
-    possible_start = max([i.MastData.data_start for i in lt_sources])
-    if possible_start.year >= 2000:
-        if pd.Timestamp(possible_start.year, data_end.month, 1) > possible_start:
-            data_start = pd.Timestamp(possible_start.year, data_end.month, 1)
-        else:
-            data_start = pd.Timestamp(possible_start.year + 1, data_end.month, 1)
-    else:
-        data_start = pd.Timestamp(2000, data_end.month, 1)
-    selection = pd.DataFrame(
-        index=[
-            "R2",
-            "Weibull A Mast",
-            "Weibull A Long Term",
-            "Weibull A bias",
-            "Weibull k Mast",
-            "Weibull k Long Term",
-            "Weibull k bias",
-            "Wind rose",
-            "Trend",
-            "Discontinuity",
-        ]
-    )
-    # update data and check for trends
-    for source in lt_sources:
-        # trim data
-        source.MastData.df = source.MastData.df[
-            (source.MastData.df.index >= data_start) & (source.MastData.df.index < data_end)
-        ]
-        # update weibulls & directional frequency
-        source.MastData._get_weibull_fit()
-        source.MastData._get_directional_data()
-        # check for trends and discontinuity
-        lin_reg, mann_kendall, easterling_peterson = source.MastData.verify_long_term_viability(
-            source.MastData.df[source.MastData.primary_windSpeed_column]
-        )
-        trend = False
-        if lin_reg and mann_kendall:
-            trend = True
-        selection[source.id] = [
-            # R2
-            mast.MastData.longTerm_corr[source.id]["R2"],
-            # Weibull A comparison
-            mast.MastData.A[mast.MastData.primary_windSpeed_column],
-            source.MastData.A[source.MastData.primary_windSpeed_column],
-            source.MastData.A[source.MastData.primary_windSpeed_column]
-            / mast.MastData.A[mast.MastData.primary_windSpeed_column]
-            - 1,
-            # weibull k comparison
-            mast.MastData.k[mast.MastData.primary_windSpeed_column],
-            source.MastData.k[source.MastData.primary_windSpeed_column],
-            source.MastData.k[source.MastData.primary_windSpeed_column]
-            / mast.MastData.k[mast.MastData.primary_windSpeed_column]
-            - 1,
-            # wind rose comparison
-            abs(
-                mast.MastData.directional_WindSpeed["frequency"] - source.MastData.directional_WindSpeed["frequency"]
-            ).sum()
-            / 2,
-            # trends & discontinuity
-            trend,
-            easterling_peterson,
-        ]
-    return selection
 
 
 def long_term_correlations(masts: list, lt_sources: list, corr_type: Callable, lt_dur: str = "W", mast_dur: str = "D"):
@@ -887,223 +329,6 @@ def run_concurrent_period(
             rated_power * length_concurrent_period
         )
     return df_concurrent_period, max_length_df, fig
-
-
-def correlate_wind_speed_sensors_10m(masts: list) -> pd.DataFrame:
-    """
-    Return mast to mast coefficients of determination without reaveraging data
-
-    Parameters
-    ----------
-    masts : list
-        list of Mast objects.
-
-    Returns
-    -------
-    pd.DataFrame
-        dataframe containing coefficients of determination between each mast and
-        wind speed sensor.
-
-    """
-    df = pd.DataFrame()
-    for mast in masts:
-        for col in mast.MastData.data_key.windSpeed_columns.values():
-            df[mast.id + "_" + col] = mast.MastData.df[col]
-    return pow(df.corr(), 2)
-
-
-def correlate_tls(df: pd.DataFrame, col_x: str, col_y: str) -> (float, float):
-    """
-    run total least square correlation between two columns of a dataframe
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        data frame containing two columns you wish to correlate.
-    col_x : str
-        column of data frame representing the independent variable.
-    col_y : str
-        column of data frame representing the dependent variable.
-
-    Returns
-    -------
-    (float, float)
-        slope and intercept of total least squares correlation.
-
-    """
-    s_xx = pow(df[col_x] - df[col_x].mean(), 2).sum()
-    s_yy = pow(df[col_y] - df[col_y].mean(), 2).sum()
-    s_xy = ((df[col_x] - df[col_x].mean()) * (df[col_y] - df[col_y].mean())).sum()
-    slope = (s_yy - s_xx + pow(pow(s_xx - s_yy, 2) + 4 * pow(s_xy, 2), 0.5)) / (2 * s_xy)
-    intercept = df[col_y].mean() - slope * df[col_x].mean()
-    return slope, intercept
-
-
-def correlate_lls(df: pd.DataFrame, col_x: str, col_y: str) -> (float, float):
-    """
-    run linear least square correlation between two columns of a dataframe
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        data frame containing two columns you wish to correlate.
-    col_x : str
-        column of data frame representing the independent variable.
-    col_y : str
-        column of data frame representing the dependent variable.
-
-    Returns
-    -------
-    (float, float)
-        slope and intercept of linear least squares correlation.
-
-    """
-    linear_regressor = LinearRegression()
-    reg = linear_regressor.fit(df[col_x].values.reshape(-1, 1), df[col_y].values.reshape(-1, 1))
-    # noinspection PyUnresolvedReferences
-    return reg.coef_[0][0], reg.intercept_[0]
-
-
-def mcp_gap_fill(
-    masts: list,
-    df_correlations: pd.DataFrame,
-    mcp_method: Callable,
-    stop_length: int,
-    min_r2: float = 0.5,
-    cutoff_ws: float = 3,
-    extend_data: bool = False,
-):
-    """
-    gap fill wind speed columns in Mast.MastData object, using the best available
-    correlation
-
-    Parameters
-    ----------
-    masts : list
-        list of Masts containing MastData.
-    df_correlations : pd.DataFrame
-        data frame containing coefficients of determination between each mast and sensor.
-    mcp_method : Callable
-        function for correlation method (eg. correlate_TLS).
-    stop_length : int
-        the maximum length of the final dataset. Used to stop gap filling of a
-        mast once maximum data recovery has been reached.
-    min_r2 : float, optional
-        minimum coefficient of determination for gap filling to occur. The default is 0.5.
-    cutoff_ws : float, optional
-        minimum wind speed used in sensor to sensor correlations. The default is 3.
-    extend_data : bool, optional
-        if True, extend each data set to the same starting and ending points.
-        If False, gap fill data but do not extend past original time frame.
-        The default is False.
-
-    Returns
-    -------
-    df_gapFill : pd.DataFrame
-        data frame containing a summary of changes to each sensor as a result
-        of the gap filling process.
-
-    """
-    # convert coefficients of determination to rank values
-    df_correlations[df_correlations < min_r2] = np.nan
-    df_correlations = df_correlations.rank(ascending=False)
-    correlation_options = len(df_correlations)
-    mast_map = {mast.id: index for index, mast in enumerate(masts)}
-    df_gap_fill = pd.DataFrame(
-        index=[
-            ("Valid Data Points", "Before"),
-            ("Valid Data Points", "After"),
-            ("Valid Data Points", "Change"),
-            ("DRR", "Before"),
-            ("DRR", "After"),
-            ("DRR", "Change"),
-            ("Mean", "Before"),
-            ("Mean", "After"),
-            ("Mean", "Change"),
-            ("Min", "Before"),
-            ("Min", "After"),
-            ("Min", "Change"),
-            ("Max", "Before"),
-            ("Max", "After"),
-            ("Max", "Change"),
-            ("Weibull k", "Before"),
-            ("Weibull k", "After"),
-            ("Weibull k", "Change"),
-        ]
-    )
-    for mast in masts:
-        values = [np.nan for _ in range(18)]
-        for col in mast.MastData.data_key.windSpeed_columns.values():
-            mast.MastData.df[col + "_filled"] = mast.MastData.df[col] * 1
-            values[0] = len(mast.MastData.df[col][~mast.MastData.df[col].isna()])
-            values[3] = values[0] / len(mast.MastData.df)
-            values[6] = mast.MastData.df[col].mean()
-            values[9] = mast.MastData.df[col].min()
-            values[12] = mast.MastData.df[col].max()
-            values[15] = mast.MastData.k[col]
-            # ranks other sensors in order of best match
-            corr_rank = {value - 1: column for column, value in df_correlations[mast.id + "_" + col].iteritems()}
-            for rank in range(1, correlation_options):
-                if corr_rank.get(rank):
-                    # if rank exists (ie. has r2 >= min_r2), run correlation and add data
-                    corr_mast = masts[mast_map[corr_rank[rank][: corr_rank[rank].index("_")]]]
-                    corr_col = corr_rank[rank][corr_rank[rank].index("_") + 1 :]
-                    mast.MastData.df["corr_x"] = corr_mast.MastData.df[corr_col] * 1
-                    mast.MastData.df["dir_x"] = corr_mast.MastData.df["directionSector"] * 1
-                    # save space for synthesized data
-                    mast.MastData.df["synthesized"] = np.nan
-                    # determine directional correlations
-                    for direction in range(mast.MastData.directionSectors):
-                        df_sub = mast.MastData.df[[col, "corr_x"]][mast.MastData.df["dir_x"] == direction]
-                        # remove low wind speed values
-                        df_sub[df_sub < cutoff_ws] = np.nan
-                        # remove nan values prior to correlation
-                        df_sub.dropna(inplace=True)
-                        if len(df_sub) > 0:
-                            # don't bother running the correlation if there are no data points
-                            slope, offset = mcp_method(df_sub, "corr_x", col)
-                            # apply directional correlations
-                            mast.MastData.df["synthesized"][mast.MastData.df["dir_x"] == direction] = (
-                                mast.MastData.df["corr_x"][mast.MastData.df["dir_x"] == direction] * slope + offset
-                            )
-                    # fill empty time stamps
-                    mast.MastData.df[col + "_filled"].fillna(mast.MastData.df["synthesized"], inplace=True)
-                    if len(mast.MastData.df[~mast.MastData.df[col + "_filled"].isna()]) == stop_length:
-                        break
-                else:
-                    # stop if you're out of columns with sufficiently high r2 value
-                    break
-            values[1] = len(mast.MastData.df[col + "_filled"][~mast.MastData.df[col + "_filled"].isna()])
-            values[4] = values[1] / len(mast.MastData.df)
-            values[7] = mast.MastData.df[col + "_filled"].mean()
-            values[10] = mast.MastData.df[col + "_filled"].min()
-            values[13] = mast.MastData.df[col + "_filled"].max()
-            df_gap_fill[(mast.id, col)] = values
-        # remove placeholder column
-        mast.MastData.df.drop(columns=["synthesized", "corr_x", "dir_x"], inplace=True)
-        if not extend_data:
-            # remove extended data if unwanted
-            mast.MastData.df = mast.MastData.df[mast.MastData.df.index >= mast.MastData.data_start]
-            mast.MastData.df = mast.MastData.df[mast.MastData.df.index <= mast.MastData.data_end]
-    # run cleanup to avoid bogging down code with unnecessary info
-    post_k = []
-    for mast in masts:
-        for col in mast.MastData.data_key.windSpeed_columns.values():
-            # drop unfilled data
-            mast.MastData.df.drop(columns=[col], inplace=True)
-            # rename _filled columns
-            mast.MastData.df.rename(columns={col + "_filled": col}, inplace=True)
-        # noinspection PyProtectedMember
-        mast.MastData._get_weibull_fit()
-        for col in mast.MastData.data_key.windSpeed_columns.values():
-            post_k.append(mast.MastData.k[col])
-    df_gap_fill = df_gap_fill.T
-    df_gap_fill[("Weibull k", "After")] = post_k
-    for i in range(6):
-        df_gap_fill[df_gap_fill.columns[3 * i + 2]] = (
-            df_gap_fill[df_gap_fill.columns[3 * i + 1]] - df_gap_fill[df_gap_fill.columns[3 * i]]
-        )
-    return df_gap_fill
 
 
 def get_reference_periods(masts: list):
@@ -1373,8 +598,8 @@ if __name__ == "__main__":
     }
     relative_humidity = {}
     pressure = {}
-    dataKey = DataKey(wind_speed, wind_direction, temperature, relative_humidity, pressure)
-    MET001 = Mast(mastID, latitude, longitude, mastElevation)
+    dataKey = ds.DataKey(wind_speed, wind_direction, temperature, relative_humidity, pressure)
+    MET001 = ds.Mast(mastID, latitude, longitude, mastElevation)
     MET001.add_data(input_file, dataKey)
 
     """ Initiate MET002 """
@@ -1395,8 +620,8 @@ if __name__ == "__main__":
     }
     relative_humidity = {}
     pressure = {}
-    dataKey = DataKey(wind_speed, wind_direction, temperature, relative_humidity, pressure)
-    MET002 = Mast(mastID, latitude, longitude, mastElevation)
+    dataKey = ds.DataKey(wind_speed, wind_direction, temperature, relative_humidity, pressure)
+    MET002 = ds.Mast(mastID, latitude, longitude, mastElevation)
     MET002.add_data(input_file, dataKey)
 
     """ set masts and reference mast """
@@ -1414,21 +639,21 @@ if __name__ == "__main__":
     latitude = 45.0
     longitude = -120.0
     input_file = r"test\test_vortexReader.txt"
-    vortex = Mast(sourceID, latitude, longitude, None)
+    vortex = ds.Mast(sourceID, latitude, longitude, None)
     vortex.add_data(input_file, source="vortex")
 
     sourceID = "era5"
     latitude = 45.0
     longitude = -120.0
     input_file = r"test\test_windographerReader_ERA5.txt"
-    era5 = Mast(sourceID, latitude, longitude, None)
+    era5 = ds.Mast(sourceID, latitude, longitude, None)
     era5.add_data(input_file, source="windog_download", time_shift=-6)
 
     sourceID = "merra2"
     latitude = 45.0
     longitude = -120.0
     input_file = r"test\test_windographerReader_MERRA2.txt"
-    merra2 = Mast(sourceID, latitude, longitude, None)
+    merra2 = ds.Mast(sourceID, latitude, longitude, None)
     merra2.add_data(input_file, source="windog_download", time_shift=-6)
     longTerm_sources = [vortex, era5, merra2]
 
@@ -1442,13 +667,13 @@ if __name__ == "__main__":
     except OSError:
         pass
     # TODO: check long-term data and delete what is only getting in the way
-    long_term_correlations(my_masts, longTerm_sources, correlate_tls)
+    long_term_correlations(my_masts, longTerm_sources, mcp.correlate_tls)
     # run concurrent period calc after all masts created
     df_concurrent, mcp_length, cp_figs = run_concurrent_period(my_masts, powerCurve, ref_mast=reference_mast.id)
     # run MCP after all masts created
-    df_correlation = correlate_wind_speed_sensors_10m(my_masts)
+    df_correlation = mcp.correlate_wind_speed_sensors(my_masts)
     if gap_filling:
-        df_gapFill = mcp_gap_fill(my_masts, df_correlation, mcp_method=correlate_tls, stop_length=mcp_length)
+        df_gapFill = mcp.mcp_gap_fill(my_masts, df_correlation, mcp_method=mcp.correlate_tls, stop_length=mcp_length)
     # put in ref period selector
     refPeriod_options, default_selection = get_reference_periods(my_masts)
     for this_mast in my_masts:
@@ -1460,7 +685,6 @@ if __name__ == "__main__":
     # TODO: user input here to select reference period or accept default (PLACE INTO 5a tab)
     # TODO: add in reference mast selection
     lt_ws = [i.MastData.df[i.MastData.primary_windSpeed_column].mean() for i in longTerm_sources]
-    df_longTerm_selection = long_term_selection_criteria(reference_mast, longTerm_sources)
     calculate_shear(my_masts)
     """ print warnings from code """
     for warning in setUp_warnings:
