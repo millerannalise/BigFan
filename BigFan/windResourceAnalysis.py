@@ -16,7 +16,6 @@ from matplotlib.patches import Rectangle
 from scipy.interpolate import griddata
 from utm import from_latlon
 
-from BigFan import dataStructures as ds
 from BigFan import mcp
 
 my_colors = [
@@ -223,7 +222,7 @@ def create_heat_map(df: pd.DataFrame):
     plt.plot(figsize=(6.4, 6.4))
     plt.xlim([x_mean - buffer, x_mean + buffer])
     plt.ylim([y_mean - buffer, y_mean + buffer])
-    nx, ny = np.mgrid[x_mean - buffer : x_mean + buffer : 1000, y_mean - buffer : y_mean + buffer : 1000]
+    nx, ny = np.mgrid[x_mean - buffer: x_mean + buffer: 1000, y_mean - buffer: y_mean + buffer: 1000]
     h = [(i["easting"], i["northing"]) for ct, i in df.iterrows()]
     nz = griddata(h, df["wind speed"].values, (nx, ny), method="linear")
     plt.contour(nx, ny, nz, linewidths=0.5)
@@ -579,6 +578,7 @@ def por_plot(masts: list):
 
 
 if __name__ == "__main__":
+    from BigFan import dataStructures as dS
     output_filepath = r"test\testWRA.xlsx"
     """ Initiate MET001 """
     mastID = "MET001"
@@ -598,8 +598,8 @@ if __name__ == "__main__":
     }
     relative_humidity = {}
     pressure = {}
-    dataKey = ds.DataKey(wind_speed, wind_direction, temperature, relative_humidity, pressure)
-    MET001 = ds.Mast(mastID, latitude, longitude, mastElevation)
+    dataKey = dS.DataKey(wind_speed, wind_direction, temperature, relative_humidity, pressure)
+    MET001 = dS.Mast(mastID, latitude, longitude, mastElevation)
     MET001.add_data(input_file, dataKey)
 
     """ Initiate MET002 """
@@ -620,8 +620,8 @@ if __name__ == "__main__":
     }
     relative_humidity = {}
     pressure = {}
-    dataKey = ds.DataKey(wind_speed, wind_direction, temperature, relative_humidity, pressure)
-    MET002 = ds.Mast(mastID, latitude, longitude, mastElevation)
+    dataKey = dS.DataKey(wind_speed, wind_direction, temperature, relative_humidity, pressure)
+    MET002 = dS.Mast(mastID, latitude, longitude, mastElevation)
     MET002.add_data(input_file, dataKey)
 
     """ set masts and reference mast """
@@ -639,21 +639,21 @@ if __name__ == "__main__":
     latitude = 45.0
     longitude = -120.0
     input_file = r"test\test_vortexReader.txt"
-    vortex = ds.Mast(sourceID, latitude, longitude, None)
+    vortex = dS.Mast(sourceID, latitude, longitude, None)
     vortex.add_data(input_file, source="vortex")
 
     sourceID = "era5"
     latitude = 45.0
     longitude = -120.0
     input_file = r"test\test_windographerReader_ERA5.txt"
-    era5 = ds.Mast(sourceID, latitude, longitude, None)
+    era5 = dS.Mast(sourceID, latitude, longitude, None)
     era5.add_data(input_file, source="windog_download", time_shift=-6)
 
     sourceID = "merra2"
     latitude = 45.0
     longitude = -120.0
     input_file = r"test\test_windographerReader_MERRA2.txt"
-    merra2 = ds.Mast(sourceID, latitude, longitude, None)
+    merra2 = dS.Mast(sourceID, latitude, longitude, None)
     merra2.add_data(input_file, source="windog_download", time_shift=-6)
     longTerm_sources = [vortex, era5, merra2]
 
@@ -673,7 +673,7 @@ if __name__ == "__main__":
     # run MCP after all masts created
     df_correlation = mcp.correlate_wind_speed_sensors(my_masts)
     if gap_filling:
-        df_gapFill = mcp.mcp_gap_fill(my_masts, df_correlation, mcp_method=mcp.correlate_tls, stop_length=mcp_length)
+        mcp.mcp_gap_fill(my_masts, df_correlation, mcp_method=mcp.correlate_tls, stop_length=mcp_length)
     # put in ref period selector
     refPeriod_options, default_selection = get_reference_periods(my_masts)
     for this_mast in my_masts:
