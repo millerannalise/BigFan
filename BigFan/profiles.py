@@ -5,6 +5,7 @@ Created on Sat Dec 17, 2022
 @author: Annalise Miller
 """
 
+from datetime import datetime
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -37,9 +38,118 @@ my_colors = [
 ]
 
 
-def plot_monthly_profile(plot_values: dict, concurrent: bool = False):
+def plot_averaged(plot_values: dict, resolution: str = 'M', concurrent: bool = False):
     """
-    plot monthly wind speed averages of primary wind speed sensor
+    plot average values of selected sensors, re-averaged to selected resolution
+
+    Parameters
+    ----------
+    plot_values : dict
+        dictionary of items to plot in diurnal form.
+        key: mast object
+        value: list of columns in key mast.MastData.df to plot
+    resolution : str
+        data resolution at which to re-average data following pandas resample nomenclature:
+        yearly, time beginning: 'AS'
+        monthly, time ending: 'M'
+        weekly, time beginning: 'W'
+        daily, time beginning: 'D'
+        The default is monthly ('M')
+    concurrent : bool, optional
+        if True, calculate monthly wind speed averages using only concurrent period data.
+        The default is False.
+
+    Returns
+    -------
+    fig : plt.plot
+        path to the resulting monthly profile plot.
+
+    """
+    if resolution == 'W':
+        resolution = 'W-MON'
+    fig = plt.figure(figsize=(10, 6.4))
+    ct = 0
+    for mast, columns in plot_values.items():
+        for column in columns:
+            if concurrent:
+                if "CP" not in mast.MastData.df.columns:
+                    raise KeyError("Please run concurrent period analysis before plotting concurrent data")
+                y = mast.MastData.df[column][mast.MastData.df["CP"] == 1].resample(resolution).agg("mean")
+            else:
+                y = mast.MastData.df[column].resample(resolution).agg("mean")
+            plt.plot(y.index, y.values, color=my_colors[ct], label=mast.id + ": " + str(column))
+            ct += 1
+    plt.legend(loc="upper center", bbox_to_anchor=(0, -0.1, 1, 0), ncol=4)
+    plt.title("Average Values")
+    plt.xlabel("Time")
+    plt.ylabel("Value")
+    plt.tight_layout()
+    return fig
+
+
+def averaged(plot_values: dict, resolution: str = 'M', concurrent: bool = False, include_count: bool = False):
+    """
+    create a table (pd.DataFrame) of the average values at selected sensors resampled to selected resolution
+
+    Parameters
+    ----------
+    plot_values : dict
+        dictionary of items to plot in diurnal form.
+        key: mast object
+        value: list of columns in key mast.MastData.df to plot
+    resolution : str
+        data resolution at which to re-average data following pandas resample nomenclature:
+        yearly, time beginning: 'AS'
+        monthly, time ending: 'M'
+        weekly, time beginning: 'W'
+        daily, time beginning: 'D'
+        The default is monthly ('M')
+    concurrent : bool, optional
+        if True, calculate monthly wind speed averages using only concurrent period data.
+        The default is False.
+    include_count : bool, optional
+        if True include columns representing the number of data points in each time step
+
+    Returns
+    -------
+    df_averaged : pd.DataFrame
+        dataframe of the re-averaged distribution of selected columns.
+
+    """
+    if resolution == 'W':
+        resolution = 'W-MON'
+    date_min = datetime.now()
+    date_max = datetime(1800, 1, 1)
+    for mast, columns in plot_values.items():
+        mast_min = mast.MastData.df.resample(resolution).count().index[0]
+        mast_max = mast.MastData.df.resample(resolution).count().index[-1]
+        if mast_min < date_min:
+            date_min = mast_min
+        if mast_max > date_max:
+            date_max = mast_max
+    df_averaged = pd.DataFrame(index=list(pd.date_range(date_min, date_max, freq=resolution)))
+    for mast, columns in plot_values.items():
+        for column in columns:
+            if concurrent:
+                if "CP" not in mast.MastData.df.columns:
+                    raise KeyError("Please run concurrent period analysis before plotting concurrent data")
+                df_sub = mast.MastData.df[column][mast.MastData.df["CP"] == 1].resample(resolution).agg(
+                    ["mean", "count"])
+                df_averaged['Mean ' + str(mast.id) + ': ' + str(column)] = df_sub['mean']
+                if include_count:
+                    df_averaged['Count ' + str(mast.id) + ': ' + str(column)] = df_sub['count']
+            else:
+                df_sub = mast.MastData.df[column].resample(resolution).agg(
+                    ["mean", "count"])
+                df_averaged['Mean ' + str(mast.id) + ': ' + str(column)] = df_sub['mean']
+                if include_count:
+                    df_averaged['Count ' + str(mast.id) + ': ' + str(column)] = df_sub['count']
+    return df_averaged
+
+
+def plot_monthly(plot_values: dict, concurrent: bool = False):
+    """
+    plot monthly average monthly values of selected sensors
 
     Parameters
     ----------
@@ -82,9 +192,9 @@ def plot_monthly_profile(plot_values: dict, concurrent: bool = False):
     return fig
 
 
-def profile_monthly(plot_values: dict, concurrent: bool = False):
+def monthly(plot_values: dict, concurrent: bool = False):
     """
-    create a table (pd.DataFrame) of the monthly wind speed averages of primary wind speed sensor
+    create a table (pd.DataFrame) of the average monthly values of selected sensors
 
     Parameters
     ----------
@@ -98,8 +208,8 @@ def profile_monthly(plot_values: dict, concurrent: bool = False):
 
     Returns
     -------
-    fig : plt.plot
-        path to the resulting monthly profile plot.
+    df_monthly : pd.DataFrame
+        dataframe of the monthly distribution of selected columns.
 
     """
     df_monthly = pd.DataFrame(index=[i for i in range(1, 13)])
@@ -108,18 +218,18 @@ def profile_monthly(plot_values: dict, concurrent: bool = False):
             if concurrent:
                 if "CP" not in mast.MastData.df.columns:
                     raise KeyError("Please run concurrent period analysis before plotting concurrent data")
-                df_monthly[str(mast.id) + ": " + column] = [
+                df_monthly[str(mast.id) + ": " + str(column)] = [
                     mast.MastData.df[column][(mast.MastData.df.index.month == i) & (mast.MastData.df["CP"] == 1)].mean()
                     for i in range(1, 13)
                 ]
             else:
-                df_monthly[str(mast.id) + ": " + column] = [
+                df_monthly[str(mast.id) + ": " + str(column)] = [
                     mast.MastData.df[column][mast.MastData.df.index.month == i].mean() for i in range(1, 13)
                 ]
     return df_monthly
 
 
-def plot_diurnal_profile(plot_values: dict, concurrent: bool = False):
+def plot_diurnal(plot_values: dict, concurrent: bool = False):
     """
     plot diurnal profile of selected data columns
 
@@ -164,7 +274,7 @@ def plot_diurnal_profile(plot_values: dict, concurrent: bool = False):
     return fig
 
 
-def profile_diurnal(plot_values: dict, concurrent: bool = False):
+def diurnal(plot_values: dict, concurrent: bool = False):
     """
     create a table (pd.DataFrame) of the diurnal profile of selected data columns
 
@@ -189,18 +299,18 @@ def profile_diurnal(plot_values: dict, concurrent: bool = False):
             if concurrent:
                 if "CP" not in mast.MastData.df.columns:
                     raise KeyError("Please run concurrent period analysis before plotting concurrent data")
-                df_diurnal[str(mast.id) + ": " + column] = [
+                df_diurnal[str(mast.id) + ": " + str(column)] = [
                     mast.MastData.df[column][(mast.MastData.df.index.hour == i) & (mast.MastData.df["CP"] == 1)].mean()
                     for i in range(24)
                 ]
             else:
-                df_diurnal[str(mast.id) + ": " + column] = [
+                df_diurnal[str(mast.id) + ": " + str(column)] = [
                     mast.MastData.df[column][mast.MastData.df.index.hour == i].mean() for i in range(24)
                 ]
     return df_diurnal
 
 
-def profile_12x24(mast, column):
+def averaged_12x24(mast, column):
     """
     create a table (pd.DataFrame) of the 12x24 profile of a selected data column
 
@@ -222,13 +332,13 @@ def profile_12x24(mast, column):
         df_12x24[month] = [
             mast.MastData.df[column][
                 (mast.MastData.df.index.month == month) & (mast.MastData.df.index.hour == hour)
-            ].mean()
+                ].mean()
             for hour in range(24)
         ]
     return df_12x24
 
 
-def plot_directional_profile(plot_values: dict, concurrent: bool = False):
+def plot_directional(plot_values: dict, concurrent: bool = False):
     """
     plot directional profile of selected data columns
 
@@ -262,7 +372,7 @@ def plot_directional_profile(plot_values: dict, concurrent: bool = False):
                 y = [
                     mast.MastData.df[column][
                         (mast.MastData.df["directionSector"] == i) & (mast.MastData.df["CP"] == 1)
-                    ].mean()
+                        ].mean()
                     for i in range(mast.MastData.directionSectors)
                 ]
             else:
@@ -285,7 +395,7 @@ def plot_directional_profile(plot_values: dict, concurrent: bool = False):
     return fig
 
 
-def profile_directional(plot_values: dict, concurrent: bool = False):
+def directional(plot_values: dict, concurrent: bool = False):
     """
     create a table (pd.DataFrame) of the directional profile of selected data columns
 
@@ -318,14 +428,14 @@ def profile_directional(plot_values: dict, concurrent: bool = False):
             if concurrent:
                 if "CP" not in mast.MastData.df.columns:
                     raise KeyError("Please run concurrent period analysis before plotting concurrent data")
-                df_directional[str(mast.id) + ": " + column] = [
+                df_directional[str(mast.id) + ": " + str(column)] = [
                     mast.MastData.df[column][
                         (mast.MastData.df["directionSector"] == i) & (mast.MastData.df["CP"] == 1)
-                    ].mean()
+                        ].mean()
                     for i in range(mast.MastData.directionSectors)
                 ]
             else:
-                df_directional[str(mast.id) + ": " + column] = [
+                df_directional[str(mast.id) + ": " + str(column)] = [
                     mast.MastData.df[column][mast.MastData.df["directionSector"] == i].mean()
                     for i in range(mast.MastData.directionSectors)
                 ]
@@ -333,12 +443,12 @@ def profile_directional(plot_values: dict, concurrent: bool = False):
 
 
 def plot_hist_distribution(
-    plot_values: dict,
-    concurrent: bool = False,
-    bin_width: float = 1.0,
-    include_weibull: bool = False,
-    fig_width: float = 10,
-    fig_length: float = 6.4,
+        plot_values: dict,
+        concurrent: bool = False,
+        bin_width: float = 1.0,
+        include_weibull: bool = False,
+        fig_width: float = 10,
+        fig_length: float = 6.4,
 ):
     """
     plot histogram distribution of selected sensor
@@ -392,7 +502,7 @@ def plot_hist_distribution(
                             (mast.MastData.df[column] < low_end + ((i + 1) * bin_width))
                             & (mast.MastData.df[column] >= low_end + (i * bin_width))
                             & (mast.MastData.df["CP"] == 1)
-                        ]
+                            ]
                     )
                     for i in range(no_bins + 1)
                 ]
@@ -411,7 +521,7 @@ def plot_hist_distribution(
                         mast.MastData.df[
                             (mast.MastData.df[column] < low_end + ((i + 1) * bin_width))
                             & (mast.MastData.df[column] >= low_end + (i * bin_width))
-                        ]
+                            ]
                     )
                     for i in range(no_bins)
                 ]
@@ -452,7 +562,7 @@ def plot_hist_distribution(
 
 
 def hist_distribution(
-    plot_values: dict, concurrent: bool = False, bin_width: float = 1.0, include_weibull: bool = False,
+        plot_values: dict, concurrent: bool = False, bin_width: float = 1.0, include_weibull: bool = False,
 ):
     """
     plot histogram distribution of selected sensor
@@ -505,28 +615,28 @@ def hist_distribution(
                 if "CP" not in mast.MastData.df.columns:
                     raise KeyError("Please run concurrent period analysis before plotting concurrent data")
                 # get bin ends for plot
-                df_hist[str(mast.id) + ": " + column] = [
+                df_hist[str(mast.id) + ": " + str(column)] = [
                     len(
                         mast.MastData.df[
                             (mast.MastData.df[column] < low_end + ((i + 1) * bin_width))
                             & (mast.MastData.df[column] >= low_end + (i * bin_width))
                             & (mast.MastData.df["CP"] == 1)
-                        ]
+                            ]
                     )
                     for i in range(no_bins + 1)
                 ]
             else:
-                df_hist[str(mast.id) + ": " + column] = [
+                df_hist[str(mast.id) + ": " + str(column)] = [
                     len(
                         mast.MastData.df[
                             (mast.MastData.df[column] < low_end + ((i + 1) * bin_width))
                             & (mast.MastData.df[column] >= low_end + (i * bin_width))
-                        ]
+                            ]
                     )
                     for i in range(no_bins)
                 ]
             # normalize values
-            df_hist[str(mast.id) + ": " + column] /= df_hist[str(mast.id) + column].sum()
+            df_hist[str(mast.id) + ": " + str(column)] /= df_hist[str(mast.id) + column].sum()
             if include_weibull:
                 flag = True
                 wind_speed_columns = []
@@ -538,7 +648,7 @@ def hist_distribution(
                     raise KeyError(
                         "Weibull plotting only available for wind speed columns: " + ", ".join(wind_speed_columns)
                     )
-                df_hist[str(mast.id) + ": " + column + ", weibull fit"] = [
+                df_hist[str(mast.id) + ": " + str(column) + ", weibull fit"] = [
                     (mast.MastData.k[column] / mast.MastData.A[column])
                     * pow(i / mast.MastData.A[column], mast.MastData.k[column] - 1)
                     * np.exp(-1 * pow(i / mast.MastData.A[column], mast.MastData.k[column]))
@@ -675,8 +785,9 @@ if __name__ == "__main__":
     # actual testing
     plot_vals = {merra2: ["WS50M"], era5: ["WS_100m"]}
     # plot_hist_distribution(plot_values=plot_vals, include_weibull=True)
-    # plot_diurnal_profile(plot_vals)
-    # plot_monthly_profile(plot_vals)
-    # plot_directional_profile(plot_vals)
+    # plot_diurnal(plot_vals)
+    # plot_monthly(plot_vals)
+    # plot_directional(plot_vals)
     # plot_wind_rose([merra2, era5])
-    ws_12x24 = profile_12x24(merra2, "WS50M")
+    # ws_12x24 = averaged_12x24(merra2, "WS50M")
+    # plot_averaged(plot_vals, resolution='AS')

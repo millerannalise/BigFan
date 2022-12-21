@@ -461,7 +461,7 @@ def cut_reference_period(masts: list, rp_start: pd.Timestamp, end: pd.Timestamp)
         mast.MastData._get_directional_data()
 
 
-def calculate_shear(masts: list, max_veer: float = 100, min_ws: float = 3):
+def calculate_shear(masts: list, min_ws: float = 3, max_veer: float = 1000):
     """
     calculate directional and weighted directional (global) shear values for each
     Mast.MastData object
@@ -470,12 +470,12 @@ def calculate_shear(masts: list, max_veer: float = 100, min_ws: float = 3):
     ----------
     masts : list
         list of Mast objects.
-    max_veer : float, optional
-        maximum wind direction veer present in a time stamp used in determining
-        the shear parameter. The default is 100.
     min_ws : float, optional
         minimum wind speed present in a time stamp used in determining
         the shear parameter. The default is 3.
+    max_veer : float, optional
+        maximum wind direction veer present in a time stamp used in determining
+        the shear parameter. The default is 1000 (essentially no veer filter).
 
     Returns
     -------
